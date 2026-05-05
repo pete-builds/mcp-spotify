@@ -9,8 +9,10 @@ See bootstrap.py for the one-time token acquisition procedure.
 """
 
 import json
+import logging
 import os
 import sys
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
@@ -18,6 +20,13 @@ from fastmcp import FastMCP
 from clients.spotify import SpotifyClient, SpotifyError
 
 load_dotenv()
+
+logging.basicConfig(
+    level=os.getenv("LOG_LEVEL", "INFO").upper(),
+    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
+    stream=sys.stderr,
+)
+log = logging.getLogger("mcp-spotify")
 
 # --- Config validation ---
 CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
@@ -34,12 +43,12 @@ missing = [
     if not value
 ]
 if missing:
-    print("FATAL: Missing required environment variables:", file=sys.stderr)
-    for m in missing:
-        print(f"  {m}", file=sys.stderr)
-    print("\nCopy .env.example to .env, register a Spotify app at", file=sys.stderr)
-    print("https://developer.spotify.com/dashboard, then run bootstrap.py", file=sys.stderr)
-    print("locally to obtain SPOTIFY_REFRESH_TOKEN.", file=sys.stderr)
+    log.critical("Missing required environment variables: %s", ", ".join(missing))
+    log.critical(
+        "Copy .env.example to .env, register a Spotify app at "
+        "https://developer.spotify.com/dashboard, then run bootstrap.py "
+        "locally to obtain SPOTIFY_REFRESH_TOKEN."
+    )
     sys.exit(1)
 
 # --- Initialize client ---
@@ -49,8 +58,17 @@ spotify = SpotifyClient(
     refresh_token=REFRESH_TOKEN,
 )
 
+
+@asynccontextmanager
+async def lifespan(_app):
+    try:
+        yield
+    finally:
+        await spotify.close()
+
+
 # --- MCP Server ---
-mcp = FastMCP("Spotify")
+mcp = FastMCP("Spotify", lifespan=lifespan)
 
 
 def _format(data: object) -> str:
@@ -98,6 +116,7 @@ async def search_artist(name: str, limit: int = 5) -> str:
     try:
         results = await spotify.search_artists(name, limit=limit)
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
     return _format(results)
 
@@ -125,6 +144,7 @@ async def get_artist_top_tracks(artist_name: str, limit: int = 5, market: str = 
             artist_name, limit=limit, market=market
         )
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
     return _format(tracks)
 
@@ -224,6 +244,7 @@ async def create_playlist_from_artists(
             }
         )
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
 
 
@@ -289,6 +310,7 @@ async def add_artists_to_playlist(
             }
         )
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
 
 
@@ -337,6 +359,7 @@ async def create_playlist_from_tracks(
             }
         )
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
 
 
@@ -355,6 +378,7 @@ async def list_my_playlists(limit: int = 50) -> str:
     try:
         return _format(await spotify.get_my_playlists(limit=max(1, min(limit, 50))))
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
 
 
@@ -402,6 +426,7 @@ async def update_playlist(
             }
         )
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
 
 
@@ -424,6 +449,7 @@ async def delete_playlist(playlist: str) -> str:
         await spotify.unfollow_playlist(target["id"])
         return _format({"removed": True, "playlist_id": target["id"], "name": target["name"]})
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
 
 
@@ -457,11 +483,12 @@ async def remove_tracks_from_playlist(playlist: str, tracks: list[str]) -> str:
             }
         )
     except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
         return _format({"error": str(e)})
 
 
 if __name__ == "__main__":
     host = os.getenv("MCP_HOST", "0.0.0.0")
     port = int(os.getenv("MCP_PORT", "3703"))
-    print(f"Starting MCP Spotify on {host}:{port} (SSE transport)")
+    log.info("Starting MCP Spotify on %s:%s (SSE transport)", host, port)
     mcp.run(transport="sse", host=host, port=port)

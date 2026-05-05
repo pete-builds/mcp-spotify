@@ -1,5 +1,6 @@
 """Spotify Web API client with OAuth 2.0 refresh-token flow."""
 
+import asyncio
 import base64
 import re
 import time
@@ -25,6 +26,7 @@ class SpotifyClient:
         self._access_token: str | None = None
         self._expires_at: float = 0.0
         self._user_id: str | None = None
+        self._token_lock = asyncio.Lock()
         self._client = httpx.AsyncClient(
             timeout=30,
             limits=httpx.Limits(max_connections=10, max_keepalive_connections=5),
@@ -58,7 +60,13 @@ class SpotifyClient:
     async def _ensure_token(self):
         if self._access_token and time.time() < self._expires_at - 60:
             return
-        await self._refresh_access_token()
+        async with self._token_lock:
+            # Another task may have refreshed while we waited on the lock.
+            # Spotify rotates refresh tokens on use, so concurrent refreshes
+            # would invalidate each other.
+            if self._access_token and time.time() < self._expires_at - 60:
+                return
+            await self._refresh_access_token()
 
     async def _request(
         self,
@@ -76,9 +84,17 @@ class SpotifyClient:
                 method, url, params=params, json=json_body, headers=headers
             )
             if resp.status_code == 401 and attempt == 0:
-                # Token may have been revoked or expired early — force refresh and retry
+                # Token may have been revoked or expired early, force refresh and retry
                 self._access_token = None
                 await self._ensure_token()
+                continue
+            if resp.status_code == 429 and attempt == 0:
+                # Respect Retry-After (seconds), cap so tool calls don't hang.
+                try:
+                    delay = float(resp.headers.get("Retry-After", "1"))
+                except ValueError:
+                    delay = 1.0
+                await asyncio.sleep(min(max(delay, 0.0), 30.0))
                 continue
             if resp.status_code >= 400:
                 raise SpotifyError(
@@ -143,11 +159,15 @@ class SpotifyClient:
         artist_id = matches[0]["id"]
         canonical = matches[0]["name"]
 
+        # Strip double quotes from the canonical name: they would close our
+        # `artist:"..."` filter and corrupt the query (silently returning no
+        # tracks for artists like `"Weird Al" Yankovic`).
+        safe_canonical = canonical.replace('"', "")
         data = await self._request(
             "GET",
             "/search",
             params={
-                "q": f'artist:"{canonical}"',
+                "q": f'artist:"{safe_canonical}"',
                 "type": "track",
                 "limit": 10,  # dev-mode cap
                 "market": market,
@@ -333,8 +353,9 @@ class SpotifyClient:
 
     async def resolve_playlist(self, ref: str) -> dict | None:
         """Resolve a user-supplied playlist reference (URL, URI, ID, or name)
-        to a `{id, name, url}` dict. Name resolution does a case-insensitive
-        match against the user's own playlists."""
+        to a `{id, name, url}` dict. Name resolution walks the user's
+        playlists page by page and returns on first case-insensitive match,
+        so users with more than 50 playlists still resolve correctly."""
         pid = self.parse_playlist_id(ref)
         if pid:
             data = await self._request("GET", f"/playlists/{pid}", params={"fields": "id,name,external_urls"})
@@ -343,10 +364,22 @@ class SpotifyClient:
                 "name": data["name"],
                 "url": data.get("external_urls", {}).get("spotify"),
             }
-        # Fall back to name match
         lowered = ref.strip().lower()
-        mine = await self.get_my_playlists(limit=50)
-        for p in mine:
-            if p["name"].lower() == lowered:
-                return {"id": p["id"], "name": p["name"], "url": p["url"]}
-        return None
+        offset = 0
+        while True:
+            data = await self._request(
+                "GET", "/me/playlists", params={"limit": 50, "offset": offset}
+            )
+            items = data.get("items", [])
+            if not items:
+                return None
+            for p in items:
+                if (p.get("name") or "").lower() == lowered:
+                    return {
+                        "id": p["id"],
+                        "name": p["name"],
+                        "url": p.get("external_urls", {}).get("spotify"),
+                    }
+            if not data.get("next"):
+                return None
+            offset += len(items)
