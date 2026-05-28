@@ -383,6 +383,56 @@ async def list_my_playlists(limit: int = 50) -> str:
 
 
 @mcp.tool()
+async def get_playlist_metadata(playlist: str) -> str:
+    """Get header-only metadata for a playlist (no track listing).
+
+    Cheap call for diff planning: snapshot_id changes whenever the playlist's
+    contents change, so the sync engine can skip unchanged playlists before
+    pulling the full track list.
+
+    Args:
+        playlist: URL, URI, 22-char ID, or exact name of the playlist.
+
+    Returns:
+        JSON with id, name, description, url, public, collaborative,
+        snapshot_id, owner_id, owner_name, track_count.
+    """
+    try:
+        target = await spotify.resolve_playlist(playlist)
+        if not target:
+            return _format({"error": f"Could not resolve playlist: {playlist!r}"})
+        return _format(await spotify.get_playlist_metadata(target["id"]))
+    except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
+        return _format({"error": str(e)})
+
+
+@mcp.tool()
+async def list_playlist_tracks(playlist: str) -> str:
+    """List every track on a playlist with ISRC, artists, and duration.
+
+    Returns one record per track. ISRC is included (from external_ids.isrc)
+    and is the primary cross-service matching key for Spotify <-> Tidal sync.
+    Local (non-Spotify) tracks added from a user's machine are skipped.
+
+    Args:
+        playlist: URL, URI, 22-char ID, or exact name of the playlist.
+
+    Returns:
+        JSON list with id, uri, name, artists, album, isrc, duration_ms,
+        added_at per track.
+    """
+    try:
+        target = await spotify.resolve_playlist(playlist)
+        if not target:
+            return _format({"error": f"Could not resolve playlist: {playlist!r}"})
+        return _format(await spotify.get_playlist_tracks(target["id"]))
+    except SpotifyError as e:
+        log.error("Spotify API error: %s", e)
+        return _format({"error": str(e)})
+
+
+@mcp.tool()
 async def update_playlist(
     playlist: str,
     new_name: str = "",

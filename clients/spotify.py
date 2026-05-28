@@ -16,6 +16,25 @@ class SpotifyError(Exception):
     """Raised when the Spotify API returns an error."""
 
 
+def _normalize_track(track: dict) -> dict:
+    """Convert a raw Spotify track object to the normalized shape shared with
+    the Tidal client. Used by get_playlist_tracks (with added_at layered on
+    top by the caller) and by the ISRC/fuzzy search helpers."""
+    album = track.get("album") or {}
+    return {
+        "id": track.get("id"),
+        "uri": track.get("uri"),
+        "name": track.get("name"),
+        "artists": [
+            {"id": a.get("id"), "name": a.get("name")}
+            for a in track.get("artists", []) or []
+        ],
+        "album": {"id": album.get("id"), "name": album.get("name")},
+        "isrc": (track.get("external_ids") or {}).get("isrc"),
+        "duration_ms": track.get("duration_ms"),
+    }
+
+
 class SpotifyClient:
     """Async Spotify client. Manages access-token refresh transparently."""
 
@@ -315,6 +334,124 @@ class SpotifyClient:
                         "owner_name": owner.get("display_name"),
                     }
                 )
+            if not data.get("next"):
+                break
+            offset += len(items)
+        return results
+
+    async def search_track_by_isrc(self, isrc: str, market: str = "US") -> list[dict]:
+        """Look up Spotify tracks by ISRC. Returns the normalized track shape.
+
+        Spotify's `/search` endpoint supports an `isrc:` field operator. ISRC
+        can resolve to multiple regional variants, so this returns a list and
+        the caller picks the right one (the sync matcher prefers the market
+        match).
+        """
+        data = await self._request(
+            "GET",
+            "/search",
+            params={
+                "q": f"isrc:{isrc}",
+                "type": "track",
+                "limit": 10,
+                "market": market,
+            },
+        )
+        items = (data.get("tracks") or {}).get("items", []) or []
+        return [_normalize_track(t) for t in items]
+
+    async def search_track_fuzzy(
+        self, title: str, artist: str, duration_ms: int | None = None
+    ) -> list[dict]:
+        """Fallback when ISRC isn't available or didn't match on the target side.
+
+        Caller (matcher) is responsible for picking the best result; this
+        method just runs the search and returns normalized candidates.
+        """
+        # Strip double quotes from the strings: they would close our
+        # `artist:"..."` / `track:"..."` filters and corrupt the query.
+        safe_title = (title or "").replace('"', "")
+        safe_artist = (artist or "").replace('"', "")
+        if not safe_title or not safe_artist:
+            return []
+        q = f'track:"{safe_title}" artist:"{safe_artist}"'
+        data = await self._request(
+            "GET",
+            "/search",
+            params={"q": q, "type": "track", "limit": 10},
+        )
+        items = (data.get("tracks") or {}).get("items", []) or []
+        return [_normalize_track(t) for t in items]
+
+    async def get_playlist_metadata(self, playlist_id: str) -> dict:
+        """Return header-only metadata for a playlist (no track listing).
+
+        Cheap call used by the sync engine to compare snapshot_id and skip
+        unchanged playlists before pulling track contents.
+
+        Requires `playlist-read-private` (and `playlist-read-collaborative`
+        for collaborative playlists).
+        """
+        data = await self._request(
+            "GET",
+            f"/playlists/{playlist_id}",
+            params={"fields": "id,name,description,public,collaborative,snapshot_id,owner(id,display_name),tracks(total),external_urls"},
+        )
+        owner = data.get("owner", {}) or {}
+        return {
+            "id": data["id"],
+            "name": data["name"],
+            "description": data.get("description"),
+            "url": data.get("external_urls", {}).get("spotify"),
+            "public": data.get("public"),
+            "collaborative": data.get("collaborative"),
+            "snapshot_id": data.get("snapshot_id"),
+            "owner_id": owner.get("id"),
+            "owner_name": owner.get("display_name"),
+            "track_count": data.get("tracks", {}).get("total"),
+        }
+
+    async def get_playlist_tracks(self, playlist_id: str) -> list[dict]:
+        """Return every track on a playlist as a normalized list.
+
+        Paginates at 100 items per page (Spotify's max). Each track dict
+        includes the ISRC (from `external_ids.isrc`) which is the
+        cross-service matching key for Spotify <-> Tidal sync.
+
+        Local (non-Spotify) tracks added from a user's machine are skipped —
+        they have no usable id/uri/isrc and can't be synced.
+
+        Requires `playlist-read-private` (and `playlist-read-collaborative`
+        for collaborative playlists).
+        """
+        # Limit the response payload with `fields` — playlist track responses
+        # are large and most fields are unused by the sync engine.
+        fields = (
+            "next,items("
+            "added_at,is_local,"
+            "track(id,uri,name,duration_ms,external_ids(isrc),"
+            "artists(id,name),album(id,name))"
+            ")"
+        )
+        results: list[dict] = []
+        offset = 0
+        while True:
+            data = await self._request(
+                "GET",
+                f"/playlists/{playlist_id}/tracks",
+                params={"limit": 100, "offset": offset, "fields": fields},
+            )
+            items = data.get("items", []) or []
+            if not items:
+                break
+            for item in items:
+                track = item.get("track") or {}
+                if item.get("is_local") or not track.get("id"):
+                    # Local file or removed/unplayable track — skip; can't sync.
+                    continue
+                normalized = _normalize_track(track)
+                normalized["added_at"] = item.get("added_at")
+                results.append(normalized)
             if not data.get("next"):
                 break
             offset += len(items)

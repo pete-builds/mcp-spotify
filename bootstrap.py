@@ -18,7 +18,11 @@ Prerequisite: the Spotify app MUST have this exact redirect URI registered:
 
     http://127.0.0.1:8765/callback
 
-Scopes requested: playlist-modify-private playlist-modify-public
+Scopes requested:
+    playlist-modify-private
+    playlist-modify-public
+    playlist-read-private
+    playlist-read-collaborative
 """
 
 import base64
@@ -34,7 +38,10 @@ import webbrowser
 
 PORT = 8765
 REDIRECT_URI = f"http://127.0.0.1:{PORT}/callback"
-SCOPES = "playlist-modify-private playlist-modify-public playlist-read-private"
+SCOPES = (
+    "playlist-modify-private playlist-modify-public "
+    "playlist-read-private playlist-read-collaborative"
+)
 AUTH_URL = "https://accounts.spotify.com/authorize"
 TOKEN_URL = "https://accounts.spotify.com/api/token"
 
