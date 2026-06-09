@@ -121,7 +121,7 @@ def main():
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
 
-    print(f"Opening browser to Spotify authorization...")
+    print("Opening browser to Spotify authorization...")
     print(f"If it does not open automatically, visit:\n  {auth_url}\n")
     webbrowser.open(auth_url)
 
