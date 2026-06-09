@@ -4,6 +4,9 @@ __pycache__/
 *.pyo
 .mypy_cache/
 .ruff_cache/
+.pytest_cache/
+.venv/
+venv/
 
 # Per-host compose override (homelab uses host networking; not for public repo)
 docker-compose.override.yml
