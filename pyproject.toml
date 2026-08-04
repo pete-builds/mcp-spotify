@@ -1,0 +1,72 @@
+[build-system]
+requires = ["hatchling>=1.30.1"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-spotify"
+version = "0.2.0"
+description = "MCP server for creating Spotify playlists from artist lists. Wraps the Spotify Web API (OAuth 2.0 authorization-code flow) and exposes tools for search, top-tracks lookup, and playlist creation/curation."
+readme = "README.md"
+license = { file = "LICENSE" }
+authors = [{ name = "Pete Stergion", email = "pstergion@gmail.com" }]
+requires-python = ">=3.11"
+keywords = ["mcp", "spotify", "playlist", "claude", "music"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Sound/Audio",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+    "fastmcp>=3.3.1",
+    "httpx>=0.28.1",
+    "uvicorn>=0.48.0",
+    "python-dotenv>=1.2.2",
+    "pete-mcp-core>=0.1.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "ruff>=0.15.0",
+    "pytest>=8.0.0",
+    "pytest-asyncio>=1.0.0",
+]
+
+[project.scripts]
+mcp-spotify = "server:main"
+
+[project.urls]
+Homepage = "https://github.com/pete-builds/mcp-spotify"
+Repository = "https://github.com/pete-builds/mcp-spotify"
+Issues = "https://github.com/pete-builds/mcp-spotify/issues"
+
+[tool.hatch.build.targets.wheel]
+# Flat layout: keep the current top-level modules. A migration to
+# src/mcp_spotify/ is a separate concern.
+only-include = ["server.py", "healthcheck.py", "bootstrap.py", "clients"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "/server.py",
+    "/healthcheck.py",
+    "/bootstrap.py",
+    "/clients",
+    "/tests",
+    "/README.md",
+    "/LICENSE",
+    "/CONTRIBUTING.md",
+    "/SECURITY.md",
+    "/Dockerfile",
+    "/docker-compose.yml",
+    "/.env.example",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

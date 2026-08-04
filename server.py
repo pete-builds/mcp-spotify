@@ -8,37 +8,65 @@ Uses OAuth 2.0 Authorization Code flow with a long-lived refresh token.
 See bootstrap.py for the one-time token acquisition procedure.
 """
 
-import json
 import logging
-import os
 import sys
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 from fastmcp import FastMCP
+from pete_mcp_core import (
+    build_auth_provider,
+    configure_logging,
+    format_response,
+    run_server,
+    tool_errors,
+)
+from pete_mcp_core.settings import BaseCoreSettings
+from pydantic import AliasChoices, Field, SecretStr, ValidationError
 
 from clients.spotify import SpotifyClient, SpotifyError
 
 load_dotenv()
 
-logging.basicConfig(
-    level=os.getenv("LOG_LEVEL", "INFO").upper(),
-    format="%(asctime)s %(levelname)s %(name)s - %(message)s",
-    stream=sys.stderr,
+
+class SpotifySettings(BaseCoreSettings):
+    spotify_client_id: str = Field(
+        default="",
+        validation_alias=AliasChoices("SPOTIFY_CLIENT_ID", "MCP_SPOTIFY_CLIENT_ID"),
+    )
+    spotify_client_secret: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices(
+            "SPOTIFY_CLIENT_SECRET", "MCP_SPOTIFY_CLIENT_SECRET"
+        ),
+    )
+    spotify_refresh_token: SecretStr = Field(
+        default=SecretStr(""),
+        validation_alias=AliasChoices(
+            "SPOTIFY_REFRESH_TOKEN", "MCP_SPOTIFY_REFRESH_TOKEN"
+        ),
+    )
+
+
+try:
+    settings = SpotifySettings()
+except ValidationError as exc:
+    print(f"FATAL: invalid configuration: {exc}", file=sys.stderr)
+    sys.exit(1)
+
+configure_logging(
+    settings.log_level,
+    settings.log_format,
+    extra_sensitive_keys=["spotify_client_secret", "spotify_refresh_token"],
 )
 log = logging.getLogger("mcp-spotify")
-
-# --- Config validation ---
-CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
-CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
-REFRESH_TOKEN = os.getenv("SPOTIFY_REFRESH_TOKEN")
 
 missing = [
     name
     for name, value in (
-        ("SPOTIFY_CLIENT_ID", CLIENT_ID),
-        ("SPOTIFY_CLIENT_SECRET", CLIENT_SECRET),
-        ("SPOTIFY_REFRESH_TOKEN", REFRESH_TOKEN),
+        ("SPOTIFY_CLIENT_ID", settings.spotify_client_id),
+        ("SPOTIFY_CLIENT_SECRET", settings.spotify_client_secret.get_secret_value()),
+        ("SPOTIFY_REFRESH_TOKEN", settings.spotify_refresh_token.get_secret_value()),
     )
     if not value
 ]
@@ -53,9 +81,9 @@ if missing:
 
 # --- Initialize client ---
 spotify = SpotifyClient(
-    client_id=CLIENT_ID,
-    client_secret=CLIENT_SECRET,
-    refresh_token=REFRESH_TOKEN,
+    client_id=settings.spotify_client_id,
+    client_secret=settings.spotify_client_secret.get_secret_value(),
+    refresh_token=settings.spotify_refresh_token.get_secret_value(),
 )
 
 
@@ -68,11 +96,25 @@ async def lifespan(_app):
 
 
 # --- MCP Server ---
-mcp = FastMCP("Spotify", lifespan=lifespan)
+mcp = FastMCP(
+    "Spotify",
+    lifespan=lifespan,
+    auth=build_auth_provider(
+        settings.auth_token,
+        client_id="spotify",
+        required=settings.auth_required,
+        logger=log,
+    ),
+)
 
+# Alias so existing `_format(...)` call sites stay unchanged.
+_format = format_response
 
-def _format(data: object) -> str:
-    return json.dumps(data, indent=2, default=str)
+# Decorator applied to every @mcp.tool() below. The per-tool
+# try/except SpotifyError blocks remain in place for now and take precedence;
+# once we've validated this decorator in production, a follow-up commit will
+# remove the redundant per-tool handlers.
+_spotify_errors = tool_errors("mcp-spotify", catch=SpotifyError)
 
 
 def _interleave(groups: list[list[str]]) -> list[str]:
@@ -103,6 +145,7 @@ async def _resolve_track_refs(refs: list[str]) -> tuple[list[str], list[str]]:
 
 
 @mcp.tool()
+@_spotify_errors
 async def search_artist(name: str, limit: int = 5) -> str:
     """Search Spotify for artists matching a name.
 
@@ -122,6 +165,7 @@ async def search_artist(name: str, limit: int = 5) -> str:
 
 
 @mcp.tool()
+@_spotify_errors
 async def get_artist_top_tracks(artist_name: str, limit: int = 5, market: str = "US") -> str:
     """Get an artist's most popular tracks in a given market.
 
@@ -179,6 +223,7 @@ async def _collect_tracks_by_artist(
 
 
 @mcp.tool()
+@_spotify_errors
 async def create_playlist_from_artists(
     artists: list[str],
     playlist_name: str,
@@ -249,6 +294,7 @@ async def create_playlist_from_artists(
 
 
 @mcp.tool()
+@_spotify_errors
 async def add_artists_to_playlist(
     playlist: str,
     artists: list[str],
@@ -315,6 +361,7 @@ async def add_artists_to_playlist(
 
 
 @mcp.tool()
+@_spotify_errors
 async def create_playlist_from_tracks(
     tracks: list[str],
     playlist_name: str,
@@ -364,6 +411,7 @@ async def create_playlist_from_tracks(
 
 
 @mcp.tool()
+@_spotify_errors
 async def list_my_playlists(limit: int = 50) -> str:
     """List the authenticated user's playlists (owned + followed).
 
@@ -383,6 +431,7 @@ async def list_my_playlists(limit: int = 50) -> str:
 
 
 @mcp.tool()
+@_spotify_errors
 async def get_playlist_metadata(playlist: str) -> str:
     """Get header-only metadata for a playlist (no track listing).
 
@@ -408,6 +457,7 @@ async def get_playlist_metadata(playlist: str) -> str:
 
 
 @mcp.tool()
+@_spotify_errors
 async def list_playlist_tracks(playlist: str) -> str:
     """List every track on a playlist with ISRC, artists, and duration.
 
@@ -433,6 +483,7 @@ async def list_playlist_tracks(playlist: str) -> str:
 
 
 @mcp.tool()
+@_spotify_errors
 async def update_playlist(
     playlist: str,
     new_name: str = "",
@@ -481,6 +532,7 @@ async def update_playlist(
 
 
 @mcp.tool()
+@_spotify_errors
 async def delete_playlist(playlist: str) -> str:
     """Remove a playlist from your library. This is Spotify's "delete" —
     behind the scenes it unfollows the playlist; the underlying data persists
@@ -504,6 +556,7 @@ async def delete_playlist(playlist: str) -> str:
 
 
 @mcp.tool()
+@_spotify_errors
 async def remove_tracks_from_playlist(playlist: str, tracks: list[str]) -> str:
     """Remove specific tracks from a playlist.
 
@@ -537,12 +590,9 @@ async def remove_tracks_from_playlist(playlist: str, tracks: list[str]) -> str:
         return _format({"error": str(e)})
 
 
+def main() -> None:
+    run_server(mcp, default_port=3703, default_transport="streamable-http")
+
+
 if __name__ == "__main__":
-    host = os.getenv("FASTMCP_HOST", os.getenv("MCP_HOST", "0.0.0.0"))
-    port = int(os.getenv("FASTMCP_PORT", os.getenv("MCP_PORT", "3703")))
-    # FastMCP 3.x reads FASTMCP_HOST/FASTMCP_PORT env vars for the
-    # streamable-http listener, so mirror MCP_* into those names too.
-    os.environ["FASTMCP_HOST"] = host
-    os.environ["FASTMCP_PORT"] = str(port)
-    log.info("Starting MCP Spotify on %s:%s (Streamable HTTP transport)", host, port)
-    mcp.run(transport="streamable-http", host=host, port=port)
+    main()
