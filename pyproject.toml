@@ -28,7 +28,9 @@ dependencies = [
     "httpx>=0.28.1",
     "uvicorn>=0.48.0",
     "python-dotenv>=1.2.2",
-    "pete-mcp-core>=0.1.0",
+    # Pinned to an immutable commit tarball until pete-mcp-core is on PyPI.
+    # Revert to "pete-mcp-core>=0.1.0" once it publishes.
+    "pete-mcp-core @ https://github.com/pete-builds/pete-mcp-core/archive/15d210625cfcf1840b6b6e95cf10990214585104.tar.gz",
 ]
 
 [project.optional-dependencies]
@@ -46,6 +48,11 @@ mcp-spotify = "server:main"
 Homepage = "https://github.com/pete-builds/mcp-spotify"
 Repository = "https://github.com/pete-builds/mcp-spotify"
 Issues = "https://github.com/pete-builds/mcp-spotify/issues"
+
+[tool.hatch.metadata]
+# Required for the pete-mcp-core commit-tarball pin above. Can be dropped
+# once that dependency reverts to a plain PyPI version specifier.
+allow-direct-references = true
 
 [tool.hatch.build.targets.wheel]
 # Flat layout: keep the current top-level modules. A migration to
