@@ -9,7 +9,6 @@ import pytest
 from clients.spotify import SpotifyClient
 from server import _interleave
 
-
 TRACK_ID = "3n3Ppam7vgaVa1iaRUc9Lp"
 PLAYLIST_ID = "37i9dQZF1DXcBWIGoYBM5M"
 
