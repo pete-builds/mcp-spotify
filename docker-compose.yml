@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   mcp-spotify:
     # Pull the published image by default. To build locally instead, comment
@@ -6,10 +12,32 @@ services:
     # build: .
     container_name: mcp-spotify
     restart: unless-stopped
-    network_mode: host
+    # Bridge networking, so this file stays portable. A host whose Docker
+    # bridge IP pool is exhausted (nix1) supplies a gitignored
+    # docker-compose.override.yml with `network_mode: host` and
+    # `ports: !reset []`.
+    ports:
+      - "3703:3703"
     env_file:
       - .env
     environment:
       - MCP_HOST=0.0.0.0
       - MCP_PORT=3703
       - TZ=${TZ:-America/New_York}
+    logging: *default-logging
+    # The server writes nothing to disk: no database, no token store, no cache.
+    # The Spotify refresh token arrives through the environment and access
+    # tokens live in memory. A read-only rootfs therefore costs nothing and
+    # removes a whole class of tampering. /tmp is tmpfs because Python wants a
+    # scratch dir.
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "healthcheck.py"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
