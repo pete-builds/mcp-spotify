@@ -31,19 +31,17 @@ EXPOSE 3703
 
 # MCP_HEALTH_PATH is deliberately NOT set here, and must not be set to /mcp.
 #
-# KNOWN ISSUE, out of scope for this hardening pass and tracked separately:
-# healthcheck.py is a thin shim over pete_mcp_core.healthcheck.main, and the
-# pete-mcp-core commit pinned in requirements.in (15d2106) predates the fix
-# that moved the default probe path off /mcp onto a session-free sentinel.
-# So today every probe hits GET /mcp, which makes the MCP SDK create a
-# transport session before returning 406 and never reaps it: ~40 KB a probe,
-# ~115 MiB/day at this interval. Measured on this image, 3 probes produced 3
-# "Created new transport" sessions.
+# healthcheck.py is a thin shim over pete_mcp_core.healthcheck.main, so the
+# probe path comes from whichever pete-mcp-core commit requirements.in pins.
+# That pin is now past 6bf0ceb, which moved the default off /mcp onto the
+# unrouted sentinel /__pete_mcp_liveness and added 404 to the healthy codes.
+# The sentinel never reaches the MCP transport mount, so no session is minted
+# and nothing leaks.
 #
-# The fix is one of: bump the pete-mcp-core pin past 6bf0ceb, or give this
-# server a /healthz custom route plus the local shim that mcp-fleaflicker and
-# mcp-threads already use. Both change runtime behavior, so neither belongs in
-# a container-hardening change.
+# Setting MCP_HEALTH_PATH=/mcp here would undo all of that: a bare GET on the
+# mount makes the SDK create a transport session before it returns 406, and
+# nothing reaps it. Measured on this image at the old pin: 35.36 kB a probe,
+# about 99 MiB/day at this interval.
 HEALTHCHECK --interval=30s --timeout=5s --retries=3 --start-period=15s \
     CMD python healthcheck.py || exit 1
 

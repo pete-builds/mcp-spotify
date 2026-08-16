@@ -381,8 +381,8 @@ pathable==0.6.0 \
     --hash=sha256:6404b8b82aef5ff0fd478934137128b99b12212ba35afdde5525ca4f8388ea58 \
     --hash=sha256:82c4ca6c98c502ad12e0d4e9779b6210afee93c38990988c8c5d1b49bdcdf566
     # via jsonschema-path
-pete-mcp-core @ https://github.com/pete-builds/pete-mcp-core/archive/15d210625cfcf1840b6b6e95cf10990214585104.tar.gz \
-    --hash=sha256:2a5eddf462ceb023747f643f70a540c0f87669d037441766d54915a820d0cf17
+pete-mcp-core @ https://github.com/pete-builds/pete-mcp-core/archive/60cc81ece57358b775bcf0f01d356a6ea2995790.tar.gz \
+    --hash=sha256:9fa85be58a671151db06602e7671f3ae1b3cd4d2c7f4a1019ea6c4d0fbef4e43
     # via -r requirements.in
 platformdirs==4.11.3 \
     --hash=sha256:5ed065d443751de711da036041a7a214122efc4a4de393b3f4137ba5576540e7 \
