@@ -15,11 +15,12 @@ jobs:
 
       - uses: actions/setup-python@v6
         with:
+          # Matches the Dockerfile base image.
           python-version: "3.13"
           cache: pip
 
       - name: Install dev dependencies
-        run: pip install -r requirements-dev.txt
+        run: pip install -r requirements-dev.in
 
       - name: Lint
         run: ruff check .
@@ -30,3 +31,65 @@ jobs:
           SPOTIFY_CLIENT_SECRET: test
           SPOTIFY_REFRESH_TOKEN: test
         run: pytest -q
+
+      - name: Import smoke (server wires up its full tool surface)
+        env:
+          SPOTIFY_CLIENT_ID: test
+          SPOTIFY_CLIENT_SECRET: test
+          SPOTIFY_REFRESH_TOKEN: test
+        run: |
+          python -c "
+          import asyncio, server
+          tools = asyncio.run(server.mcp.list_tools())
+          names = sorted(t.name for t in tools)
+          assert len(names) == 11, names
+          print('tools:', names)
+          "
+
+      - name: Lockfile is in sync with requirements.in
+        run: |
+          pip install uv
+          # Recompile under the SAME output filename in a scratch directory.
+          # uv records the -o path in the file's header comment, so compiling
+          # to a different name guarantees a one-line diff and a check that can
+          # never pass.
+          mkdir -p /tmp/lockcheck
+          cp requirements.in /tmp/lockcheck/
+          (cd /tmp/lockcheck && uv pip compile requirements.in -o requirements.lock \
+            --generate-hashes --universal --python-version 3.13 --quiet)
+          diff -u requirements.lock /tmp/lockcheck/requirements.lock \
+            || (echo "::error::requirements.lock is stale; regenerate it with:
+          uv pip compile requirements.in -o requirements.lock --generate-hashes --universal --python-version 3.13" && exit 1)
+
+  scan:
+    name: Trivy filesystem scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      # Tags carry a leading "v". Versions below v0.35.0 are affected by the
+      # brief Trivy ecosystem supply chain compromise; do not pin back.
+      - uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          exit-code: "1"
+          ignore-unfixed: true
+
+  build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          tags: mcp-spotify:ci
+          # SBOM and provenance attestations produce a manifest list, which the
+          # local docker exporter cannot load. This job only needs to prove the
+          # image builds, so it does not set `load` and nothing is exported.
+          sbom: true
+          provenance: true
