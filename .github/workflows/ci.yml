@@ -117,7 +117,7 @@ jobs:
         run: |
           docker run --rm --entrypoint python mcp-spotify:guard -c '
           import sys
-          want = (3, 14)
+          want = (3, 13)
           got = sys.version_info[:2]
           assert got == want, (
               f"image ships Python {sys.version.split()[0]}, but requirements.lock "
