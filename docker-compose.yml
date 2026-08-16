@@ -8,7 +8,7 @@ services:
   mcp-spotify:
     # Pull the published image by default. To build locally instead, comment
     # out `image:` and uncomment `build: .`.
-    image: ghcr.io/pete-builds/mcp-spotify:0.2.0
+    image: ghcr.io/pete-builds/mcp-spotify:0.2.1
     # build: .
     container_name: mcp-spotify
     restart: unless-stopped
