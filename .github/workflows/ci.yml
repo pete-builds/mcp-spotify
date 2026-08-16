@@ -48,7 +48,7 @@ jobs:
 
       - name: Lockfile is in sync with requirements.in
         run: |
-          pip install uv
+          pip install uv==0.12.5
           # Recompile under the SAME output filename in a scratch directory.
           # uv records the -o path in the file's header comment, so compiling
           # to a different name guarantees a one-line diff and a check that can
