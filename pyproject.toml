@@ -1,10 +1,10 @@
 [build-system]
-requires = ["hatchling>=1.31.0"]
+requires = ["hatchling>=1.32.0"]
 build-backend = "hatchling.build"
 
 [project]
 name = "mcp-spotify"
-version = "0.2.0"
+version = "0.2.1"
 description = "MCP server for creating Spotify playlists from artist lists. Wraps the Spotify Web API (OAuth 2.0 authorization-code flow) and exposes tools for search, top-tracks lookup, and playlist creation/curation."
 readme = "README.md"
 license = { file = "LICENSE" }
