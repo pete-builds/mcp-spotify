@@ -116,6 +116,48 @@ _format = format_response
 # remove the redundant per-tool handlers.
 _spotify_errors = tool_errors("mcp-spotify", catch=SpotifyError)
 
+# --- Tool annotations ---
+# Nothing in an MCP manifest distinguishes delete_playlist from search_artist
+# unless the tool says so, so a client has no basis on which to prompt before a
+# destructive call. Every tool here reaches Spotify over the network, so
+# openWorldHint is True throughout.
+
+#: Reads only. Safe to repeat, safe to call speculatively.
+READ_ONLY = {
+    "readOnlyHint": True,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+
+#: Sets a value on an existing playlist. Applying the same name, description,
+#: or visibility twice lands in the same place.
+WRITE_IDEMPOTENT = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+
+#: Creates a playlist, or appends to one. Not idempotent, deliberately:
+#: Spotify permits duplicate tracks, and a repeated create makes a second
+#: playlist with the same name. An idempotent hint would invite the retry that
+#: goes wrong.
+CREATE = {
+    "readOnlyHint": False,
+    "destructiveHint": False,
+    "idempotentHint": False,
+    "openWorldHint": True,
+}
+
+#: Removes tracks, or unfollows the playlist entirely. Worth confirming.
+DESTRUCTIVE = {
+    "readOnlyHint": False,
+    "destructiveHint": True,
+    "idempotentHint": True,
+    "openWorldHint": True,
+}
+
 
 def _interleave(groups: list[list[str]]) -> list[str]:
     """Round-robin interleave: [A, B, C, A, B, C, ...] so the same artist
@@ -144,7 +186,7 @@ async def _resolve_track_refs(refs: list[str]) -> tuple[list[str], list[str]]:
     return resolved, bad
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 @_spotify_errors
 async def search_artist(name: str, limit: int = 5) -> str:
     """Search Spotify for artists matching a name.
@@ -164,7 +206,7 @@ async def search_artist(name: str, limit: int = 5) -> str:
     return _format(results)
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 @_spotify_errors
 async def get_artist_top_tracks(artist_name: str, limit: int = 5, market: str = "US") -> str:
     """Get an artist's most popular tracks in a given market.
@@ -222,7 +264,7 @@ async def _collect_tracks_by_artist(
     return per_artist_uris, resolved, not_found
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATE)
 @_spotify_errors
 async def create_playlist_from_artists(
     artists: list[str],
@@ -293,7 +335,7 @@ async def create_playlist_from_artists(
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATE)
 @_spotify_errors
 async def add_artists_to_playlist(
     playlist: str,
@@ -360,7 +402,7 @@ async def add_artists_to_playlist(
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=CREATE)
 @_spotify_errors
 async def create_playlist_from_tracks(
     tracks: list[str],
@@ -410,7 +452,7 @@ async def create_playlist_from_tracks(
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 @_spotify_errors
 async def list_my_playlists(limit: int = 50) -> str:
     """List the authenticated user's playlists (owned + followed).
@@ -430,7 +472,7 @@ async def list_my_playlists(limit: int = 50) -> str:
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 @_spotify_errors
 async def get_playlist_metadata(playlist: str) -> str:
     """Get header-only metadata for a playlist (no track listing).
@@ -456,7 +498,7 @@ async def get_playlist_metadata(playlist: str) -> str:
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=READ_ONLY)
 @_spotify_errors
 async def list_playlist_tracks(playlist: str) -> str:
     """List every track on a playlist with ISRC, artists, and duration.
@@ -482,7 +524,7 @@ async def list_playlist_tracks(playlist: str) -> str:
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=WRITE_IDEMPOTENT)
 @_spotify_errors
 async def update_playlist(
     playlist: str,
@@ -531,7 +573,7 @@ async def update_playlist(
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=DESTRUCTIVE)
 @_spotify_errors
 async def delete_playlist(playlist: str) -> str:
     """Remove a playlist from your library. This is Spotify's "delete" —
@@ -555,7 +597,7 @@ async def delete_playlist(playlist: str) -> str:
         return _format({"error": str(e)})
 
 
-@mcp.tool()
+@mcp.tool(annotations=DESTRUCTIVE)
 @_spotify_errors
 async def remove_tracks_from_playlist(playlist: str, tracks: list[str]) -> str:
     """Remove specific tracks from a playlist.
