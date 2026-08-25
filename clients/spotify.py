@@ -60,6 +60,49 @@ class SpotifyClient:
         raw = f"{self._client_id}:{self._client_secret}".encode()
         return base64.b64encode(raw).decode()
 
+    @staticmethod
+    def _describe_error(resp, context: str) -> str:
+        """Describe an upstream failure without pasting its body into a tool result.
+
+        A tool result goes straight into an agent's context and is frequently
+        logged and summarised from there, so an upstream body is the wrong
+        thing to forward verbatim. Two reasons, and the second is the one that
+        makes this worth doing rather than merely tidy.
+
+        Spotify's ERROR BODIES ARE NOT A STABLE CONTRACT. They are JSON on the
+        Web API but form-encoded on the token endpoint, and an edge failure
+        (a proxy, a maintenance page, a rate-limit interstitial) returns HTML.
+        Forwarding an arbitrary blob means the agent reads whatever the edge
+        happened to serve, which is how a plain 502 becomes a page of markup in
+        the model's context.
+
+        And the TOKEN endpoint is the sharp case. The request carries the
+        client secret in a Basic header and the refresh token in the body, and
+        an OAuth error response echoes request parameters back. That is the one
+        response on this client whose body can plausibly contain credential
+        material, and it was the one being pasted in full.
+
+        Status and endpoint are kept, because an error nobody can diagnose is
+        its own problem. Spotify's own machine-readable reason is extracted
+        when the body really is the documented JSON shape -- a short, known
+        field, not an arbitrary blob.
+        """
+        reason = ""
+        try:
+            payload = resp.json()
+        except Exception:  # noqa: BLE001 - a non-JSON body is exactly the case
+            payload = None
+        if isinstance(payload, dict):
+            err = payload.get("error")
+            if isinstance(err, dict):
+                reason = str(err.get("message") or "")[:200]
+            elif isinstance(err, str):
+                # The token endpoint's shape: {"error": "invalid_grant"}. The
+                # code is safe; error_description can quote the request, so it
+                # is deliberately not read here.
+                reason = err[:200]
+        return f"{context} failed ({resp.status_code})" + (f": {reason}" if reason else "")
+
     async def _refresh_access_token(self):
         resp = await self._client.post(
             SPOTIFY_TOKEN_URL,
@@ -67,7 +110,7 @@ class SpotifyClient:
             headers={"Authorization": f"Basic {self._basic_auth()}"},
         )
         if resp.status_code != 200:
-            raise SpotifyError(f"Token refresh failed ({resp.status_code}): {resp.text}")
+            raise SpotifyError(self._describe_error(resp, "Token refresh"))
         data = resp.json()
         self._access_token = data["access_token"]
         self._expires_at = time.time() + int(data.get("expires_in", 3600))
@@ -116,7 +159,7 @@ class SpotifyClient:
                 continue
             if resp.status_code >= 400:
                 raise SpotifyError(
-                    f"Spotify API error ({resp.status_code}) on {method} {path}: {resp.text}"
+                    self._describe_error(resp, f"Spotify API {method} {path}")
                 )
             if not resp.content:
                 return {}
