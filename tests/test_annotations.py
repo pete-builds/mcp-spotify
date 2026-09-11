@@ -47,11 +47,11 @@ def test_every_tool_is_annotated(tools):
 def test_removals_are_marked_destructive(tools):
     for name in MUST_BE_DESTRUCTIVE:
         assert name in tools, f"{name} vanished; update this list deliberately"
-        assert tools[name].annotations.destructiveHint is True, name
+        assert tools[name].annotations.destructive_hint is True, name
 
 
 def test_writes_are_never_marked_read_only(tools):
-    mislabelled = [n for n in MUST_NOT_BE_READ_ONLY if tools[n].annotations.readOnlyHint]
+    mislabelled = [n for n in MUST_NOT_BE_READ_ONLY if tools[n].annotations.read_only_hint]
     assert mislabelled == []
 
 
@@ -63,7 +63,7 @@ def test_creation_is_not_idempotent(tools):
     """
     for name in ("create_playlist_from_artists", "create_playlist_from_tracks",
                  "add_artists_to_playlist"):
-        assert tools[name].annotations.idempotentHint is False, name
+        assert tools[name].annotations.idempotent_hint is False, name
 
 
 def test_update_playlist_is_idempotent(tools):
@@ -72,17 +72,17 @@ def test_update_playlist_is_idempotent(tools):
     Marking it non-idempotent alongside the creates would be a false alarm, and
     hints that cry wolf get ignored.
     """
-    assert tools["update_playlist"].annotations.idempotentHint is True
+    assert tools["update_playlist"].annotations.idempotent_hint is True
 
 
 def test_no_tool_is_both_read_only_and_destructive(tools):
     contradictory = [
         name for name, t in tools.items()
-        if t.annotations.readOnlyHint and t.annotations.destructiveHint
+        if t.annotations.read_only_hint and t.annotations.destructive_hint
     ]
     assert contradictory == []
 
 
 def test_every_tool_declares_an_open_world(tools):
-    closed = [n for n, t in tools.items() if t.annotations.openWorldHint is not True]
+    closed = [n for n, t in tools.items() if t.annotations.open_world_hint is not True]
     assert closed == []
