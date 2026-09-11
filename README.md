@@ -119,10 +119,10 @@ If you add tools that need more (e.g. `user-top-read` for "my listening history"
 
 ## Architecture
 
-- [FastMCP](https://github.com/jlowin/fastmcp) over Streamable HTTP transport (MCP spec 2025-06-18)
+- [FastMCP](https://github.com/PrefectHQ/fastmcp) 4 over Streamable HTTP transport; the protocol revision (2025-06-18 or 2026-07-28) is negotiated per connection
 - [httpx](https://www.python-httpx.org/) async client with in-memory access-token cache and automatic refresh on 401 or expiry
 - Stdlib-only bootstrap helper (`http.server`, `webbrowser`, `urllib`) — no extra deps for the one-time OAuth dance
-- `python:3.13-slim` base image, `fastmcp==3.1.0`, `httpx==0.28.1`
+- `python:3.13-slim` base image, `fastmcp==4.0.3`, `httpx==0.28.1`
 
 ## License
 
