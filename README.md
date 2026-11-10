@@ -4,7 +4,7 @@ A Spotify MCP server designed to run as a **remote service** over Streamable HTT
 
 Most Spotify MCP servers today ([varunneal/spotify-mcp](https://github.com/varunneal/spotify-mcp), [marcelmarais/spotify-mcp-server](https://github.com/marcelmarais/spotify-mcp-server), etc.) launch as a subprocess on the same machine as your AI client. If you have more than one machine — a homelab, a shared dev server, a laptop that moves around — you end up running N copies with N separate OAuth flows.
 
-This server runs **once**, in a Docker container, exposes Spotify tools over Streamable HTTP on a port, and any MCP client on your LAN or Tailscale network connects to it with one URL. OAuth happens once in a bootstrap script; the refresh token lives on the server.
+This server runs **once**, in a Docker container, exposes Spotify tools over Streamable HTTP on a port, and any MCP client on your LAN or Tailscale network connects to it with one URL and one bearer token. OAuth happens once in a bootstrap script; the refresh token lives on the server.
 
 > Previously published as `spotify-mcp-sse`. Renamed to `mcp-spotify` on the migration from the deprecated HTTP+SSE transport to Streamable HTTP (MCP spec 2025-06-18). The old URL `https://github.com/pete-builds/spotify-mcp-sse` redirects to this repo.
 
@@ -62,13 +62,28 @@ Your browser opens, you authorize, the terminal prints a long-lived refresh toke
 
 ### 3. Deploy the server
 
-Copy the code to whatever host will run the container (typically a homelab box, LAN-accessible). Write `.env`:
+Copy the code to whatever host will run the container (typically a homelab box, LAN-accessible).
+
+Generate a bearer token. The server requires one for HTTP: these tools create, edit and delete playlists on your account, so the server will not answer a caller that cannot present it.
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+Write `.env` next to `docker-compose.yml`, then lock it down:
 
 ```
 SPOTIFY_CLIENT_ID=...
 SPOTIFY_CLIENT_SECRET=...
 SPOTIFY_REFRESH_TOKEN=...
+MCP_AUTH_TOKEN=<the token you just generated>
 ```
+
+```bash
+chmod 600 .env
+```
+
+The token lives in `.env` on the host and nowhere else. Never put it in `docker-compose.yml` or a compose override, and never commit it (`.env` is gitignored).
 
 Start it:
 
@@ -78,25 +93,60 @@ docker compose up -d --build
 
 Server is now at `http://<host>:3703/mcp` (Streamable HTTP).
 
+If `MCP_AUTH_TOKEN` is missing or blank the container does not serve. It exits at startup, logs `MCP_AUTH_TOKEN is not set`, and `restart: unless-stopped` keeps restarting it until `.env` has a token. There is no setting that runs HTTP without one: `MCP_AUTH_REQUIRED=false` does not open it either.
+
 ### 4. Register with your MCP client
+
+Every request must carry the token in an `Authorization: Bearer` header. A request without it, or with the wrong one, gets `401`.
 
 Claude Code:
 
 ```bash
-claude mcp add spotify http://<host>:3703/mcp --transport http --scope user
+claude mcp add --transport http --scope user spotify http://<host>:3703/mcp \
+  --header "Authorization: Bearer <your token>"
 ```
 
-Any other MCP client that supports Streamable HTTP: point it at the same URL.
+Or as a JSON entry (`.mcp.json`, or any client that takes the same shape):
+
+```json
+{
+  "mcpServers": {
+    "spotify": {
+      "type": "http",
+      "url": "http://<host>:3703/mcp",
+      "headers": {
+        "Authorization": "Bearer <your token>"
+      }
+    }
+  }
+}
+```
+
+That file now holds a credential, so keep it out of git and readable only by you.
+
+Any other MCP client that supports Streamable HTTP: point it at the same URL and configure the same header.
+
+### Local stdio (development)
+
+For a local subprocess instead of the HTTP service, set `MCP_TRANSPORT=stdio`:
+
+```bash
+MCP_TRANSPORT=stdio python server.py
+```
+
+stdio opens no network listener, so no bearer token is needed and `MCP_AUTH_TOKEN` can stay unset. The Spotify credentials are still required. `MCP_TRANSPORT=stdio` is the only switch: without it the server defaults to HTTP and refuses to start until a token is set.
 
 ## Configuration
 
-Environment variables (all optional except credentials):
+Environment variables (all optional except the credentials and the bearer token):
 
 | Var | Default | Purpose |
 |---|---|---|
-| `SPOTIFY_CLIENT_ID` | — | From Spotify Developer dashboard (required) |
-| `SPOTIFY_CLIENT_SECRET` | — | From Spotify Developer dashboard (required) |
-| `SPOTIFY_REFRESH_TOKEN` | — | From `bootstrap.py` (required) |
+| `SPOTIFY_CLIENT_ID` | none | From Spotify Developer dashboard (required) |
+| `SPOTIFY_CLIENT_SECRET` | none | From Spotify Developer dashboard (required) |
+| `SPOTIFY_REFRESH_TOKEN` | none | From `bootstrap.py` (required) |
+| `MCP_AUTH_TOKEN` | none | Bearer token clients must send (required for HTTP; not needed for stdio) |
+| `MCP_TRANSPORT` | `streamable-http` | `streamable-http` or `stdio` |
 | `MCP_HOST` | `0.0.0.0` | Bind address |
 | `MCP_PORT` | `3703` | Listening port |
 

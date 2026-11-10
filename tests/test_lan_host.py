@@ -41,6 +41,11 @@ LAN_IP = "192.168.86.20"
 # (`ports: ["<port>:<port>"]`); host networking is the "direct" path.
 BRIDGE_IP = "172.17.0.2"
 PORT = 3703
+# HTTP refuses to start without a bearer token, so every boot here carries an
+# obviously fake one and the probe presents it. Without it these probes would
+# read 401 and say nothing about the Host guard. tests/test_auth_required.py
+# owns the unauthenticated cases.
+TOKEN = "test-token-not-a-secret"
 REPO = Path(__file__).resolve().parent.parent
 
 _PROBE = r"""
@@ -59,7 +64,7 @@ import server
 server.main()
 
 app = captured["app"]
-lan_ip, bridge_ip, port = sys.argv[1], sys.argv[2], int(sys.argv[3])
+lan_ip, bridge_ip, port, token = sys.argv[1], sys.argv[2], int(sys.argv[3]), sys.argv[4]
 init = {
     "jsonrpc": "2.0",
     "id": 1,
@@ -73,6 +78,7 @@ init = {
 headers = {
     "accept": "application/json, text/event-stream",
     "content-type": "application/json",
+    "authorization": f"Bearer {token}",
 }
 
 
@@ -120,6 +126,7 @@ def _boot(**env_overrides: str) -> dict:
     env.update(
         {
             "MCP_PORT": str(PORT),
+            "MCP_AUTH_TOKEN": TOKEN,
             "FASTMCP_SHOW_SERVER_BANNER": "false",
             "FASTMCP_CHECK_FOR_UPDATES": "off",
             "PYTHONPATH": str(REPO),
@@ -127,7 +134,7 @@ def _boot(**env_overrides: str) -> dict:
     )
     env.update(env_overrides)
     proc = subprocess.run(
-        [sys.executable, "-c", _PROBE, LAN_IP, BRIDGE_IP, str(PORT)],
+        [sys.executable, "-c", _PROBE, LAN_IP, BRIDGE_IP, str(PORT), TOKEN],
         cwd=REPO,
         env=env,
         capture_output=True,

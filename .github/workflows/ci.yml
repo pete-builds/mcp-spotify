@@ -37,6 +37,9 @@ jobs:
           SPOTIFY_CLIENT_ID: test
           SPOTIFY_CLIENT_SECRET: test
           SPOTIFY_REFRESH_TOKEN: test
+          # HTTP is the default transport and it refuses to load without a
+          # bearer token. An obviously fake one, as the test suite uses.
+          MCP_AUTH_TOKEN: test-token-not-a-secret
         run: |
           python -c "
           import asyncio, server
