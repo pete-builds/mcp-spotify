@@ -18,6 +18,12 @@ services:
     # `ports: !reset []`.
     ports:
       - "3703:3703"
+    # .env carries the Spotify credentials AND the bearer token
+    # (MCP_AUTH_TOKEN). The token is required: without it the container exits
+    # at startup instead of serving unauthenticated, and with
+    # `restart: unless-stopped` it will keep restarting until .env has one.
+    # Keep .env at mode 600 on the host. Never write the token into this file
+    # or into a compose override, and never commit it. See .env.example.
     env_file:
       - .env
     environment:

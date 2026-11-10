@@ -11,6 +11,7 @@ See bootstrap.py for the one-time token acquisition procedure.
 import logging
 import sys
 from contextlib import asynccontextmanager
+from typing import Literal
 
 import fastmcp
 from dotenv import load_dotenv
@@ -22,6 +23,7 @@ from pete_mcp_core import (
     run_server,
     tool_errors,
 )
+from pete_mcp_core.auth import AuthRequiredError
 from pete_mcp_core.settings import BaseCoreSettings
 from pydantic import AliasChoices, Field, SecretStr, ValidationError
 
@@ -31,6 +33,11 @@ load_dotenv()
 
 
 class SpotifySettings(BaseCoreSettings):
+    # The shared base defaults to stdio. This server defaults to
+    # streamable-http (see main()), so the default is restated here to make
+    # settings.transport the transport that will actually run. The bearer-token
+    # requirement below is scoped by it.
+    transport: Literal["stdio", "streamable-http"] = "streamable-http"
     spotify_client_id: str = Field(
         default="",
         validation_alias=AliasChoices("SPOTIFY_CLIENT_ID", "MCP_SPOTIFY_CLIENT_ID"),
@@ -96,16 +103,34 @@ async def lifespan(_app):
         await spotify.close()
 
 
+# --- Auth ---
+# The HTTP transport requires a bearer token (MCP_AUTH_TOKEN). With no token the
+# import fails here, before anything listens. stdio has no network listener, so
+# the requirement is scoped to streamable-http and local stdio use needs no
+# token. MCP_AUTH_REQUIRED=false does not open HTTP either: build_auth_provider
+# then returns None and run_server refuses a streamable-http server that has no
+# auth provider, because main() never passes allow_unauthenticated.
+try:
+    _auth = build_auth_provider(
+        settings.auth_token,
+        client_id="spotify",
+        required=settings.auth_required and settings.transport == "streamable-http",
+        logger=log,
+    )
+except AuthRequiredError:
+    log.critical(
+        "MCP_AUTH_TOKEN is not set, so the streamable-http transport refuses to "
+        "start. Generate a token with: python3 -c \"import secrets; "
+        "print(secrets.token_urlsafe(32))\" and put it in .env as "
+        "MCP_AUTH_TOKEN. For local stdio use, set MCP_TRANSPORT=stdio instead."
+    )
+    raise
+
 # --- MCP Server ---
 mcp = FastMCP(
     "Spotify",
     lifespan=lifespan,
-    auth=build_auth_provider(
-        settings.auth_token,
-        client_id="spotify",
-        required=settings.auth_required,
-        logger=log,
-    ),
+    auth=_auth,
 )
 
 # Alias so existing `_format(...)` call sites stay unchanged.

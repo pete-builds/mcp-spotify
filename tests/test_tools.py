@@ -13,6 +13,9 @@ from unittest.mock import AsyncMock
 os.environ.setdefault("SPOTIFY_CLIENT_ID", "test-id")
 os.environ.setdefault("SPOTIFY_CLIENT_SECRET", "test-secret")
 os.environ.setdefault("SPOTIFY_REFRESH_TOKEN", "test-refresh")
+# The HTTP transport refuses to load without a bearer token, and HTTP is this
+# server's default transport. An obviously fake one keeps the import honest.
+os.environ.setdefault("MCP_AUTH_TOKEN", "test-token-not-a-secret")
 
 import pytest
 

@@ -3,6 +3,9 @@ import os
 os.environ.setdefault("SPOTIFY_CLIENT_ID", "test")
 os.environ.setdefault("SPOTIFY_CLIENT_SECRET", "test")
 os.environ.setdefault("SPOTIFY_REFRESH_TOKEN", "test")
+# The HTTP transport refuses to load without a bearer token, and HTTP is this
+# server's default transport. An obviously fake one keeps the import honest.
+os.environ.setdefault("MCP_AUTH_TOKEN", "test-token-not-a-secret")
 
 import pytest
 
